@@ -1,0 +1,7 @@
+interface:
+  display_name: "Jira Ticket"
+  short_description: "Manage Jira tickets from WORK.md and markdown"
+  default_prompt: "Use $jira-ticket to create or sync Jira tickets from WORK.md and ticket markdown."
+
+policy:
+  allow_implicit_invocation: true
