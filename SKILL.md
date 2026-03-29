@@ -1,6 +1,6 @@
 ---
 name: jira-ticket
-description: Use when a user asks in Codex to create, update, assign, transition, sync, or template Jira tickets from WORK.md, ticket markdown, or existing Jira issues. Triggers on requests like "Jira 티켓 만들어줘", "서브태스크 추가", "WORK.md 업데이트", "Jira 싱크", "상태 변경", "작업자 등록", and "기존 Jira 티켓 보고 템플릿 만들어줘".
+description: Use when a user asks in Codex to create, update, assign, transition, sync, import, or template Jira tickets from WORK.md, ticket markdown, or existing Jira issues. Triggers on requests like "Jira 티켓 만들어줘", "서브태스크 추가", "WORK.md 업데이트", "Jira 싱크", "상태 변경", "작업자 등록", "나에게 할당된 티켓 가져와줘", and "기존 Jira 티켓 보고 템플릿 만들어줘".
 ---
 
 # Jira Ticket Management
@@ -41,6 +41,7 @@ description: Use when a user asks in Codex to create, update, assign, transition
 |------|------|
 | 팀 멤버 테이블 | 이름 -> 이메일 또는 Jira 계정 매핑 |
 | 상태 매핑 표 | `WORK.md` 섹션 -> Jira 상태 또는 전환명 |
+| 기본 Jira 사용자 | `"나에게 할당된 티켓"` 요청 시 사용할 이메일 또는 Jira 계정 |
 
 상태 매핑이 없으면 Jira 상태 전환은 보수적으로 처리한다. 섹션 이름만 보고 Jira workflow를 추정하지 않는다.
 
@@ -49,6 +50,8 @@ description: Use when a user asks in Codex to create, update, assign, transition
 ```text
 docs/work/
   TEMPLATE.md
+  imported/
+    {issue-key}-description.md
   {epic-code}/
     {issue-key}-description.md
     {parent-key}/
@@ -122,6 +125,7 @@ docs/work/
 | `getJiraIssue` | 현재 상태와 필드 조회 |
 | `transitionJiraIssue` | 상태 전환 |
 | `lookupJiraAccountId` | 이름 또는 이메일 -> account ID 변환 |
+| Jira search/JQL 도구 (있는 경우) | assignee 기준 이슈 목록 조회와 import |
 
 ## 워크플로우
 
@@ -250,6 +254,55 @@ Step 6: 결과 보고
 - bootstrap 모드에서도 Jira 내용을 그대로 정답으로 취급하지 말고, 팀이 반복해서 쓰는 형식만 추출한다.
 - 서로 다른 프로젝트나 workflow의 티켓을 섞어 읽으면 템플릿이 오염될 수 있으니 가능하면 같은 묶음만 사용한다.
 - 사용자가 특정 티켓 1개만 주면 seed 예시로만 사용하고, 가능한 경우 추가 티켓을 더 요청하거나 주변 티켓을 찾아 비교한다.
+
+### 7. 내 할당 티켓 import
+
+이 워크플로우는 사용자가 명시적으로 요청할 때만 실행한다.
+
+```text
+Step 1: import 대상 사용자 결정
+  - "나에게 할당된 티켓"이면 `기본 Jira 사용자` 또는 팀 멤버 테이블에서 현재 사용자를 해석한다
+  - 특정 작업자 이름이 있으면 그 이름을 우선한다
+  - Jira 사용자 식별이 안 되면 import 전에 사용자에게 확인한다
+
+Step 2: import 범위 결정
+  - 기본값은 현재 프로젝트 키 안에서, 완료되지 않은 티켓만 본다
+  - 사용자가 전체 프로젝트, 특정 Epic, 특정 상태를 원하면 그 필터를 따른다
+
+Step 3: Jira에서 티켓 목록 조회
+  - Jira MCP에 search/JQL 도구가 있으면 assignee 기준으로 목록을 가져온다
+  - search 도구가 없으면 이 기능은 자동 목록 조회를 할 수 없다고 알리고, 사용자가 티켓 키 목록을 주면 그 목록으로 import 한다
+
+Step 4: import 후보 정리
+  - 이미 로컬에 같은 Jira 키 문서가 있으면 덮어쓰지 말고 sync 후보로 분류한다
+  - Done/Drop 계열은 기본적으로 제외하고, 사용자가 원할 때만 포함한다
+
+Step 5: 각 티켓 상세 조회
+  - getJiraIssue 로 summary, description, status, assignee, parent/subtask 구조를 읽는다
+  - Epic 또는 부모 경로를 알 수 있으면 그 경로를 사용한다
+  - 경로를 확정할 수 없으면 `docs/work/imported/{issue-key}-description.md` 에 저장한다
+
+Step 6: markdown 파일 생성
+  - 티켓 내용을 프로젝트 TEMPLATE 형식에 맞춰 변환한다
+  - 제목은 실제 Jira 키를 사용한다
+  - 참고 자료에 Jira 링크를 넣는다
+  - 사람 이름, 상태 메모, 임시 운영 문구는 필요 이상으로 고정하지 않는다
+
+Step 7: WORK.md 반영
+  - 상태 매핑이 있으면 대응 섹션에 항목을 추가한다
+  - 상태 매핑이 없거나 모호하면 문서만 만들고 WORK.md 반영은 보류했다고 보고한다
+  - 기존 WORK.md 항목이 있으면 중복 추가하지 않는다
+
+Step 8: 결과 보고
+  - 새로 import 한 티켓
+  - 이미 있어서 건너뛴 티켓
+  - 경로를 확정하지 못해 imported 폴더에 넣은 티켓
+  - search 도구 부재, 사용자 식별 실패 같은 blocker
+```
+
+- import는 Jira를 source of truth로 바꾸는 동작이 아니라, 로컬 작업 문서를 bootstrap 하는 예외 흐름이다.
+- 기본 import는 보수적으로 한다. 특히 기존 문서를 덮어쓰지 않고, 완료된 티켓은 기본 제외한다.
+- "나"를 자동으로 추정하지 않는다. `기본 Jira 사용자`, 팀 멤버 표, 또는 사용자 명시값 중 하나가 필요하다.
 
 ## 작업자 싱크 규칙
 
